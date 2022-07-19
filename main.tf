@@ -8,6 +8,12 @@ terraform {
   }
 }
 
+variable "ssh_key" {
+  type = string
+
+  default = null
+}
+
 variable "domains" {
   type = map
 
@@ -43,17 +49,32 @@ resource "libvirt_volume" "disk_resized" {
 
 data "template_file" "user_data" {
   template = file("${path.module}/cloud_init.cfg")
+
+  vars = {
+    hostname = each.key
+    public_key = var.ssh_key != null ? var.ssh_key : file(pathexpand("~/.ssh/id_ed25519.pub"))
+  }
+
+  for_each = var.domains
 }
 
 data "template_file" "network_config" {
   template = file("${path.module}/network_config.cfg")
+
+  vars = {
+    ip = each.value.ip
+  }
+
+  for_each = var.domains
 }
 
 resource "libvirt_cloudinit_disk" "cloudinit" {
-  name           = "cloudinit.iso"
-  user_data      = data.template_file.user_data.rendered
-  network_config = data.template_file.network_config.rendered
+  name           = "cloudinit-${each.key}.iso"
+  user_data      = data.template_file.user_data[each.key].rendered
+  network_config = data.template_file.network_config[each.key].rendered
   pool           = "default"
+
+  for_each = var.domains
 }
 
 resource "libvirt_domain" "domain" {
@@ -62,16 +83,13 @@ resource "libvirt_domain" "domain" {
   vcpu   = 2
 
   for_each = var.domains
-  cloudinit = libvirt_cloudinit_disk.cloudinit.id
+  cloudinit = libvirt_cloudinit_disk.cloudinit[each.key].id
 
   network_interface {
     network_name = "default"
     wait_for_lease = true
   }
 
-  # IMPORTANT: this is a known bug on cloud images, since they expect a console
-  # we need to pass it
-  # https://bugs.launchpad.net/cloud-images/+bug/1573095
   console {
     type        = "pty"
     target_port = "0"
@@ -94,11 +112,3 @@ resource "libvirt_domain" "domain" {
     autoport    = true
   }
 }
-
-# output "ip1" {
-#   value = libvirt_domain.domain["worker1"].network_interface[0].addresses[0]
-# }
-
-# output "ip" {
-#   value = libvirt_domain.domain["control1"].network_interface[0].addresses[0]
-# }
