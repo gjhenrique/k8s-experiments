@@ -58,21 +58,6 @@ resource "libvirt_cloudinit_disk" "cloudinit" {
   for_each = var.domains
 }
 
-
-# resource "libvirt_volume" "kernel" {
-#   source = "http://localhost:8080/vmlinuz"
-#   name   = "kernel"
-#   pool   = "default"
-#   format = "raw"
-# }
-
-# resource "libvirt_volume" "initrd" {
-#   source = "http://localhost:8080/initrd.img"
-#   name   = "initrd"
-#   pool   = "default"
-#   format = "raw"
-# }
-
 resource "libvirt_domain" "domain" {
   name   = "machine-${each.key}"
   memory = "4096"
@@ -84,16 +69,6 @@ resource "libvirt_domain" "domain" {
   network_interface {
     network_name = "default"
   }
-
-  # initrd = libvirt_volume.initrd.id
-  # kernel = libvirt_volume.kernel.id
-  # cmdline = [
-  #   {
-  #     "systemd.unified_cgroup_hierarchy" = "0"
-  #     "console" = "ttyS0"
-  #     # "root" = "/dev/vda1"
-  #   }
-  # ]
 
   console {
     type        = "pty"
@@ -132,25 +107,25 @@ resource "libvirt_domain" "domain" {
   }
 }
 
-# resource "null_resource" "kubeadm_init" {
-#   triggers = {
-#     domain_id = libvirt_domain.domain[each.key].id
-#   }
+resource "null_resource" "kubeadm_init" {
+  triggers = {
+    domain_id = libvirt_domain.domain[each.key].id
+  }
 
-#   provisioner "remote-exec" {
-#     when    = create
+  provisioner "remote-exec" {
+    when    = create
 
-#     connection {
-#       host        = libvirt_domain.domain[each.key].network_interface.0.addresses.0
-#       type        = "ssh"
-#       user        = "kubernetes"
-#       private_key =  var.ssh_private_key != null ? var.ssh_private_key : file(pathexpand("~/.ssh/id_ed25519"))
-#     }
+    connection {
+      host        = each.value.ip
+      type        = "ssh"
+      user        = "kubernetes"
+      private_key =  var.ssh_private_key != null ? var.ssh_private_key : file(pathexpand("~/.ssh/id_ed25519"))
+    }
 
-#     inline = [
-#       "sudo kubeadm init --service-cidr \"10.96.0.0/12\" --pod-network-cidr \"10.244.0.0/16\" --token wkfvbq.d1dioz5bwjxwtxuz"
-#     ]
-#   }
+    inline = [
+      "sudo kubeadm init --service-cidr \"10.96.0.0/12\" --pod-network-cidr \"10.244.0.0/16\" --token wkfvbq.d1dioz5bwjxwtxuz"
+    ]
+  }
 
-#   for_each = var.domains
-# }
+  for_each = { for key, val in var.domains: key => val if !val.worker }
+}
